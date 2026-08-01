@@ -1,0 +1,6 @@
+{
+  "name": "DoubtNest",
+  "description": "Private college doubt discussion platform for students, seniors, TAs, and faculty.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,1 +1,89 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
 @import "tailwindcss";
+
+:root {
+	font-family: 'DM Sans', sans-serif;
+	color: #18323a;
+	background: #f5f8f6;
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+	background:
+		radial-gradient(circle at 8% 0%, rgba(20, 184, 166, 0.09), transparent 28rem),
+		linear-gradient(180deg, #f7faf8 0%, #eef5f2 100%);
+}
+
+h1, h2, h3, h4, button, nav {
+	font-family: 'Space Grotesk', sans-serif;
+}
+
+button, select, input, textarea {
+	font: inherit;
+}
+
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+	outline: 3px solid rgba(20, 184, 166, 0.35);
+	outline-offset: 2px;
+}
+
+::selection {
+	color: #ffffff;
+	background: #0f766e;
+}
+
+.dark body {
+	background: #102326;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+	display: none;
+}
+
+.scrollbar-none {
+	scrollbar-width: none;
+}
+
+/* Keep older interface components on the same visual system. */
+[class*="bg-indigo"], [class*="bg-blue"] {
+	background-color: #f0fdfa !important;
+}
+
+[class*="bg-indigo-600"], [class*="bg-indigo-700"], [class*="bg-blue-600"], [class*="bg-blue-700"] {
+	background-color: #0f766e !important;
+}
+
+[class*="text-indigo"], [class*="text-blue"] {
+	color: #0f766e !important;
+}
+
+[class*="border-indigo"], [class*="border-blue"] {
+	border-color: #99f6e4 !important;
+}
+
+[class*="ring-indigo"], [class*="ring-blue"] {
+	--tw-ring-color: rgba(13, 148, 136, 0.35) !important;
+}
+
+[class*="shadow-indigo"], [class*="shadow-blue"] {
+	--tw-shadow-color: rgba(13, 148, 136, 0.25) !important;
+}
+
+[class*="from-indigo"], [class*="via-indigo"], [class*="to-blue"] {
+	background-image: linear-gradient(120deg, #0f766e, #0e7490) !important;
+}
+
+.dark [class*="bg-indigo"], .dark [class*="bg-blue"] {
+	background-color: #134e4a !important;
+}
+
+.dark [class*="bg-indigo-600"], .dark [class*="bg-indigo-700"], .dark [class*="bg-blue-600"], .dark [class*="bg-blue-700"] {
+	background-color: #0f766e !important;
+}
+
+.dark [class*="text-indigo"], .dark [class*="text-blue"] {
+	color: #99f6e4 !important;
+}

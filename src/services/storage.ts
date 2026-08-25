@@ -116,7 +116,7 @@ export function awardReputation(userId: string, points: number) {
 // College Email Validation helper
 export function isCollegeEmail(email: string): boolean {
   const cleaned = email.trim().toLowerCase();
-  return cleaned.endsWith('.edu') || cleaned.endsWith('college.edu') || cleaned.endsWith('univ.edu') || cleaned.includes('.edu.');
+  return /^[^\s@]+@[^\s@]+\.ac\.in$/.test(cleaned);
 }
 
 // Auth Actions
@@ -132,7 +132,7 @@ export function registerCollegeUser(
   if (!isCollegeEmail(email)) {
     return {
       success: false,
-      message: 'Access denied: You must use a valid college email address ending in .edu (e.g. name@college.edu).'
+      message: 'Access denied: You must use a valid college email address ending in .ac.in (e.g. name@college.ac.in).'
     };
   }
 

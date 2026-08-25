@@ -24,6 +24,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { UserProfile } from './components/UserProfile';
 import { Leaderboard } from './components/Leaderboard';
 import { CommunityRulesModal } from './components/CommunityRulesModal';
+import { NestAIChat } from './components/NestAIChat';
 
 import {
   initStorage,
@@ -207,16 +208,16 @@ export default function App() {
           <div className="space-y-6">
             
             {/* Campus Banner / Stats */}
-            <div className="p-6 rounded-3xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-blue-600 text-white shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="p-6 rounded-3xl bg-gradient-to-r from-teal-700 via-teal-800 to-cyan-700 text-white shadow-xl shadow-teal-900/15 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div className="space-y-1">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-xs font-semibold backdrop-blur-md">
-                  <GraduationCap className="w-4 h-4 text-amber-300" />
+                  <GraduationCap className="w-4 h-4 text-lime-300" />
                   Official College Peer Discussion Hub
                 </div>
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight">
                   Solve Academic Doubts Anonymously & Collaborate
                 </h1>
-                <p className="text-xs text-indigo-100 max-w-2xl">
+                <p className="text-xs text-teal-100 max-w-2xl">
                   Ask questions without fear, get verified answers from professors and top seniors, and build your campus academic reputation.
                 </p>
               </div>
@@ -227,9 +228,9 @@ export default function App() {
                     if (!currentUser) setIsAuthOpen(true);
                     else setIsAskOpen(true);
                   }}
-                  className="px-5 py-2.5 text-xs font-bold text-indigo-700 bg-white hover:bg-indigo-50 rounded-2xl shadow-lg transition-transform active:scale-95 flex items-center gap-2"
+                  className="px-5 py-2.5 text-xs font-bold text-teal-800 bg-white hover:bg-teal-50 rounded-2xl shadow-lg transition-transform active:scale-95 flex items-center gap-2"
                 >
-                  <Plus className="w-4 h-4 text-indigo-600" />
+                  <Plus className="w-4 h-4 text-teal-700" />
                   Ask Question Anonymously
                 </button>
               </div>
@@ -243,7 +244,7 @@ export default function App() {
                   onClick={() => setSelectedCategory(cat)}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
                     selectedCategory === cat
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30'
+                      ? 'bg-teal-700 text-white shadow-md shadow-teal-700/30'
                       : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700'
                   }`}
                 >
@@ -291,7 +292,7 @@ export default function App() {
                     onClick={() => setSortBy('newest')}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
                       sortBy === 'newest'
-                        ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                        ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
@@ -301,7 +302,7 @@ export default function App() {
                     onClick={() => setSortBy('votes')}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
                       sortBy === 'votes'
-                        ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                        ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
@@ -311,7 +312,7 @@ export default function App() {
                     onClick={() => setSortBy('unanswered')}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition-all ${
                       sortBy === 'unanswered'
-                        ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                        ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-300 shadow-sm'
                         : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
@@ -339,7 +340,7 @@ export default function App() {
                     setSelectedDept('All Departments');
                     setSelectedSem('All Semesters');
                   }}
-                  className="px-4 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="px-4 py-2 text-xs font-bold text-teal-700 dark:text-teal-300 hover:underline"
                 >
                   Reset all filters
                 </button>
@@ -369,7 +370,7 @@ export default function App() {
       <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-6 text-center text-xs text-slate-400">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <GraduationCap className="w-4 h-4 text-indigo-600" />
+            <GraduationCap className="w-4 h-4 text-teal-700" />
             <span className="font-bold text-slate-700 dark:text-slate-300">DoubtNest Campus Platform</span>
             <span>• Private & Secure College Discussion</span>
           </div>
@@ -427,6 +428,8 @@ export default function App() {
       />
 
       <CommunityRulesModal isOpen={isRulesOpen} onClose={() => setIsRulesOpen(false)} />
+
+      <NestAIChat doubts={doubts} answers={answers} currentUser={currentUser} />
 
     </div>
   );

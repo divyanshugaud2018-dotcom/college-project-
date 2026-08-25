@@ -105,12 +105,12 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => setActiveTab('feed')}
               className="flex items-center gap-2.5 text-left group focus:outline-none"
             >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-700 to-blue-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-700 via-teal-800 to-cyan-700 flex items-center justify-center text-white shadow-md shadow-teal-700/20 group-hover:scale-105 transition-transform">
                 <GraduationCap className="w-6 h-6" />
               </div>
               <div>
                 <span className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1">
-                  Doubt<span className="text-indigo-600 dark:text-indigo-400">Nest</span>
+                  Doubt<span className="text-teal-700 dark:text-teal-300">Nest</span>
                 </span>
                 <span className="text-[10px] tracking-wider uppercase font-semibold text-slate-500 dark:text-slate-400 block -mt-1">
                   College Academic Hub
@@ -124,7 +124,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => setActiveTab('feed')}
                 className={`px-3 py-1.5 rounded-lg transition-colors ${
                   activeTab === 'feed'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold'
+                    ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-semibold'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -138,7 +138,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
                   activeTab === 'leaderboard'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold'
+                    ? 'bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-semibold'
                     : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -181,7 +181,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 placeholder="Search doubts, subjects, topics, codes..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                className="w-full pl-9 pr-4 py-1.5 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
               />
             </div>
           </div>
@@ -192,7 +192,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Quick Ask Button */}
             <button
               onClick={onOpenAskDoubt}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm shadow-indigo-600/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 text-sm font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg shadow-sm shadow-teal-700/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">Ask Doubt</span>
@@ -318,7 +318,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="relative">
                 <button
                   onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-2 p-1 rounded-full border-2 border-indigo-600/30 hover:border-indigo-600 transition-all"
+                  className="flex items-center gap-2 p-1 rounded-full border-2 border-teal-600/30 hover:border-teal-600 transition-all"
                 >
                   <img
                     src={user.avatar}
@@ -385,7 +385,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             ) : (
               <button
                 onClick={onOpenAuth}
-                className="px-4 py-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 border border-indigo-600/30 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors"
+                className="px-4 py-1.5 text-xs font-bold text-teal-700 dark:text-teal-300 hover:text-teal-800 border border-teal-600/30 rounded-lg hover:bg-teal-50 dark:hover:bg-teal-950/50 transition-colors"
               >
                 Sign In
               </button>
@@ -393,6 +393,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           </div>
 
+        </div>
+
+        <div className="lg:hidden pb-3">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search doubts, subjects, topics..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
+              aria-label="Search doubts"
+            />
+          </div>
         </div>
       </div>
     </header>

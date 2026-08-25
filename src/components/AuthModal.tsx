@@ -71,13 +71,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }, 400);
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
     if (!isCollegeEmail(email)) {
-      setErrorMsg('Strict Policy: You must use your official college email ending with .edu (e.g. name@college.edu)');
+      setErrorMsg('Strict Policy: You must use your official college email ending with .ac.in (e.g. name@college.ac.in)');
       return;
     }
 
@@ -87,20 +87,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      const response = await fetch('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to send verification code.');
       setIsLoading(false);
-      // Advance to simulated email verification
       setTab('verify');
-      setSuccessMsg(`Verification code sent to ${email}. Check your college inbox.`);
-    }, 500);
+      setSuccessMsg(result.message);
+    } catch (error) {
+      setIsLoading(false);
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to send verification code.');
+    }
   };
 
-  const handleConfirmVerification = (e: React.FormEvent) => {
+  const handleConfirmVerification = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setIsLoading(true);
 
-    setTimeout(() => {
+    try {
+      const response = await fetch('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: verifyCode }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to verify email.');
       setIsLoading(false);
       const res = registerCollegeUser(email, name, role, department, year, rollNumber, avatar);
       if (res.success) {
@@ -109,13 +125,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       } else {
         setErrorMsg(res.message);
       }
-    }, 600);
+    } catch (error) {
+      setIsLoading(false);
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to verify email.');
+    }
   };
 
   const handleForgotPassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (!isCollegeEmail(email)) {
-      setErrorMsg('Enter a valid college .edu email address.');
+      setErrorMsg('Enter a valid college .ac.in email address.');
       return;
     }
     setIsLoading(true);
@@ -130,7 +149,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       <div className="relative w-full max-w-md bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
         
         {/* Header */}
-        <div className="p-6 bg-gradient-to-r from-indigo-600 to-blue-600 text-white relative">
+        <div className="p-6 bg-gradient-to-r from-teal-700 via-teal-800 to-cyan-700 text-white relative">
           <button
             onClick={onClose}
             className="absolute top-4 right-4 p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
@@ -144,7 +163,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </div>
             <h2 className="text-xl font-bold">College Account Access</h2>
           </div>
-          <p className="text-xs text-indigo-100">
+          <p className="text-xs text-teal-100">
             Exclusive platform for verified students, faculty, and campus staff.
           </p>
         </div>
@@ -160,7 +179,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               }}
               className={`flex-1 py-3 text-xs font-bold border-b-2 transition-colors ${
                 tab === 'login'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30'
+                  ? 'border-teal-700 text-teal-700 dark:text-teal-300 bg-teal-50/50 dark:bg-teal-950/30'
                   : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
               }`}
             >
@@ -174,7 +193,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               }}
               className={`flex-1 py-3 text-xs font-bold border-b-2 transition-colors ${
                 tab === 'register'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/30'
+                  ? 'border-teal-700 text-teal-700 dark:text-teal-300 bg-teal-50/50 dark:bg-teal-950/30'
                   : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
               }`}
             >
@@ -205,17 +224,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  College Email (.edu required)
+                  College Email (.ac.in required)
                 </label>
                 <div className="relative">
                   <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="email"
                     required
-                    placeholder="student@college.edu"
+                    placeholder="student@college.ac.in"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
                   />
                 </div>
               </div>
@@ -232,7 +251,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
                   />
                 </div>
               </div>
@@ -245,7 +264,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     setErrorMsg('');
                     setSuccessMsg('');
                   }}
-                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="text-xs text-teal-700 dark:text-teal-300 hover:underline"
                 >
                   Forgot password?
                 </button>
@@ -254,7 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
+                className="w-full py-2.5 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-lg shadow-teal-700/20 transition-all flex items-center justify-center gap-2"
               >
                 {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Sign In to Campus Hub'}
               </button>
@@ -280,12 +299,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  College Email (Must end in .edu)
+                  College Email (Must end in .ac.in)
                 </label>
                 <input
                   type="email"
                   required
-                  placeholder="rohan@college.edu"
+                  placeholder="rohan@college.ac.in"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
@@ -303,7 +322,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <img
                       src={avatar}
                       alt="Selected Profile"
-                      className="w-11 h-11 rounded-xl object-cover ring-2 ring-indigo-500 flex-shrink-0"
+                      className="w-11 h-11 rounded-xl object-cover ring-2 ring-teal-500 flex-shrink-0"
                     />
 
                     <button
@@ -339,7 +358,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         alt="preset"
                         onClick={() => setAvatar(preset)}
                         className={`w-6 h-6 rounded-md object-cover cursor-pointer ring-1 transition-all ${
-                          avatar === preset ? 'ring-indigo-600 scale-110' : 'ring-transparent opacity-60'
+                          avatar === preset ? 'ring-teal-600 scale-110' : 'ring-transparent opacity-60'
                         }`}
                       />
                     ))}
@@ -420,7 +439,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-2.5 mt-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-lg shadow-indigo-600/20 transition-all flex items-center justify-center gap-2"
+                className="w-full py-2.5 mt-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-lg shadow-teal-700/20 transition-all flex items-center justify-center gap-2"
               >
                 {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Send Email Verification Code'}
               </button>
@@ -430,7 +449,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           {/* EMAIL VERIFICATION STEP */}
           {tab === 'verify' && (
             <form onSubmit={handleConfirmVerification} className="space-y-4">
-              <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900 text-xs text-indigo-800 dark:text-indigo-200">
+              <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-100 dark:border-teal-900 text-xs text-teal-800 dark:text-teal-200">
                 We sent a 6-digit verification code to <strong>{email}</strong>. Enter code below (e.g. 123456).
               </div>
 
@@ -476,7 +495,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <input
                   type="email"
                   required
-                  placeholder="name@college.edu"
+                  placeholder="name@college.ac.in"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
@@ -486,7 +505,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all"
+                className="w-full py-2.5 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-all"
               >
                 {isLoading ? <RefreshCw className="w-4 h-4 animate-spin mx-auto" /> : 'Send Reset Instructions'}
               </button>

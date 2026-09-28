@@ -1,8 +1,10 @@
 import tailwindcss from '@tailwindcss/vite';
+import { GoogleGenAI } from '@google/genai';
 import react from '@vitejs/plugin-react';
 import nodemailer from 'nodemailer';
 import path from 'path';
 import {defineConfig} from 'vite';
+import 'dotenv/config';
 
 const registrationOtps = new Map<string, { code: string; expiresAt: number; attempts: number }>();
 
@@ -11,6 +13,63 @@ const readRequestBody = async (request: AsyncIterable<Buffer | string>) => {
   for await (const chunk of request) body += chunk;
   return JSON.parse(body);
 };
+
+const aiChatApi = () => ({
+  name: 'doubtnest-ai-api',
+  configureServer(server: { middlewares: { use: (handler: (request: any, response: any, next: () => void) => void) => void } }) {
+    server.middlewares.use(async (request, response, next) => {
+      if (request.url !== '/api/ai/chat' || request.method !== 'POST') {
+        next();
+        return;
+      }
+
+      response.setHeader('Content-Type', 'application/json');
+
+      try {
+        if (!process.env.GEMINI_API_KEY) {
+          response.statusCode = 503;
+          response.end(JSON.stringify({ error: 'Gemini is not configured.' }));
+          return;
+        }
+
+        const payload = await readRequestBody(request);
+        const question = String(payload.question || '').trim();
+        const context = String(payload.context || '').trim();
+        if (!question) {
+          response.statusCode = 400;
+          response.end(JSON.stringify({ error: 'A question is required.' }));
+          return;
+        }
+
+        const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+        const contents = [{
+          role: 'user' as const,
+          parts: [{
+            text: `You are Nest AI, a concise and encouraging college study companion for DoubtNest. Answer the student's question directly. Use the feed context when relevant, but never invent feed entries or claim to have performed actions. If the question is unrelated to studying, answer briefly and redirect toward academic help.\n\nFeed context:\n${context || 'No feed context is available.'}\n\nStudent question:\n${question}`,
+          }],
+        }];
+        let result;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            result = await ai.models.generateContent({ model: 'gemini-3.8-flash', contents });
+            break;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : '';
+            if (attempt === 1 || !message.includes('503')) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 750));
+          }
+        }
+
+        response.statusCode = 200;
+        response.end(JSON.stringify({ reply: result?.text || 'I could not generate a response. Please try again.' }));
+      } catch (error) {
+        console.error('Gemini request failed:', error instanceof Error ? error.message : 'Unknown Gemini error');
+        response.statusCode = 502;
+        response.end(JSON.stringify({ error: 'Gemini could not answer right now.' }));
+      }
+    });
+  },
+});
 
 const authApi = () => ({
   name: 'doubtnest-auth-api',
@@ -104,7 +163,7 @@ const authApi = () => ({
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss(), authApi()],
+    plugins: [react(), tailwindcss(), authApi(), aiChatApi()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Bot, ChevronDown, RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { Answer, Doubt, User } from '../types';
 
@@ -22,22 +22,28 @@ const starterPrompts = [
 
 const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+const getWelcomeMessage = (user: User | null): ChatMessage => ({
+  id: 'welcome',
+  role: 'assistant',
+  content: `Hi${user?.name ? ` ${user.name.split(' ')[0]}` : ''}! I’m Nest AI, your personal study companion. Ask me about the DoubtNest feed or tell me what you’re learning.`,
+});
+
 export const NestAIChat: React.FC<NestAIChatProps> = ({ doubts, answers, currentUser }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: `Hi${currentUser?.name ? ` ${currentUser.name.split(' ')[0]}` : ''}! I’m Nest AI, your personal study companion. Ask me about the DoubtNest feed or tell me what you’re learning.`,
-    },
-  ]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([getWelcomeMessage(currentUser)]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const createReply = (question: string) => {
-    const normalizedQuestion = question.toLowerCase();
+    const normalizedQuestion = question.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const unansweredDoubts = doubts.filter((doubt) => !answers.some((answer) => answer.doubtId === doubt.id));
     const matchedDoubt = doubts.find((doubt) =>
-      `${doubt.title} ${doubt.subject} ${doubt.tags.join(' ')}`.toLowerCase().split(' ').some((word) =>
+      `${doubt.title} ${doubt.subject} ${doubt.tags.join(' ')}`.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(' ').some((word) =>
         word.length > 3 && normalizedQuestion.includes(word),
       ),
     );
@@ -67,16 +73,33 @@ export const NestAIChat: React.FC<NestAIChatProps> = ({ doubts, answers, current
     return 'I can help you find discussions, choose a study topic, or improve a question before you post it. Try asking “Find unanswered doubts” or “What should I study today?”';
   };
 
-  const sendMessage = (message = input) => {
-    const trimmedMessage = message.trim();
-    if (!trimmedMessage) return;
+  const getFeedContext = () => doubts.map((doubt) => {
+    const answerCount = answers.filter((answer) => answer.doubtId === doubt.id).length;
+    return `- ${doubt.title} | subject: ${doubt.subject} | tags: ${doubt.tags.join(', ')} | answers: ${answerCount}`;
+  }).join('\n');
 
-    setMessages((currentMessages) => [
-      ...currentMessages,
-      { id: makeId(), role: 'user', content: trimmedMessage },
-      { id: makeId(), role: 'assistant', content: createReply(trimmedMessage) },
-    ]);
+  const sendMessage = async (message = input) => {
+    const trimmedMessage = message.trim();
+    if (!trimmedMessage || isLoading) return;
+
+    setMessages((currentMessages) => [...currentMessages, { id: makeId(), role: 'user', content: trimmedMessage }]);
     setInput('');
+    setIsLoading(true);
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: trimmedMessage, context: getFeedContext() }),
+      });
+      if (!response.ok) throw new Error('AI service unavailable');
+      const data = await response.json() as { reply?: string };
+      setMessages((currentMessages) => [...currentMessages, { id: makeId(), role: 'assistant', content: data.reply || createReply(trimmedMessage) }]);
+    } catch {
+      setMessages((currentMessages) => [...currentMessages, { id: makeId(), role: 'assistant', content: createReply(trimmedMessage) }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const resetChat = () => {
@@ -113,7 +136,7 @@ export const NestAIChat: React.FC<NestAIChatProps> = ({ doubts, answers, current
             </div>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-950/60">
+          <div className="flex-1 space-y-3 overflow-y-auto bg-slate-50 p-4 dark:bg-slate-950/60" aria-live="polite">
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-xs leading-5 ${message.role === 'user' ? 'rounded-br-md bg-teal-700 text-white' : 'rounded-bl-md border border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>
@@ -121,20 +144,21 @@ export const NestAIChat: React.FC<NestAIChatProps> = ({ doubts, answers, current
                 </div>
               </div>
             ))}
+            <div ref={messagesEndRef} aria-hidden="true" />
           </div>
 
           <div className="border-t border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
             <div className="mb-2 flex gap-1.5 overflow-x-auto pb-1">
               {starterPrompts.map((prompt) => (
-                <button key={prompt} onClick={() => sendMessage(prompt)} className="whitespace-nowrap rounded-full border border-teal-100 bg-teal-50 px-2.5 py-1 text-[10px] font-bold text-teal-700 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-300">
+                <button type="button" key={prompt} onClick={() => void sendMessage(prompt)} disabled={isLoading} className="whitespace-nowrap rounded-full border border-teal-100 bg-teal-50 px-2.5 py-1 text-[10px] font-bold text-teal-700 hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-teal-900 dark:bg-teal-950/50 dark:text-teal-300">
                   {prompt}
                 </button>
               ))}
             </div>
             <form onSubmit={(event) => { event.preventDefault(); sendMessage(); }} className="flex items-center gap-2">
-              <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="Ask Nest AI..." className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 dark:border-slate-700 dark:bg-slate-800 dark:text-white" aria-label="Message Nest AI" />
-              <button type="submit" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-white shadow-sm hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50" disabled={!input.trim()} aria-label="Send message">
-                <Send className="h-4 w-4" />
+              <input value={input} onChange={(event) => setInput(event.target.value)} placeholder={isLoading ? 'Nest AI is thinking...' : 'Ask Nest AI...'} disabled={isLoading} className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-900 outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 disabled:cursor-wait disabled:opacity-70 dark:border-slate-700 dark:bg-slate-800 dark:text-white" aria-label="Message Nest AI" />
+              <button type="submit" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-teal-700 text-white shadow-sm hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50" disabled={!input.trim() || isLoading} aria-label="Send message">
+                {isLoading ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" /> : <Send className="h-4 w-4" />}
               </button>
             </form>
           </div>

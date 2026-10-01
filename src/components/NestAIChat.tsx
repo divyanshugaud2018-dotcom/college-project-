@@ -92,11 +92,13 @@ export const NestAIChat: React.FC<NestAIChatProps> = ({ doubts, answers, current
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: trimmedMessage, context: getFeedContext() }),
       });
-      if (!response.ok) throw new Error('AI service unavailable');
-      const data = await response.json() as { reply?: string };
+      const data = await response.json().catch(() => ({})) as { reply?: string; error?: string };
+      if (!response.ok) throw new Error(data.error || `AI service returned ${response.status}.`);
       setMessages((currentMessages) => [...currentMessages, { id: makeId(), role: 'assistant', content: data.reply || createReply(trimmedMessage) }]);
-    } catch {
-      setMessages((currentMessages) => [...currentMessages, { id: makeId(), role: 'assistant', content: createReply(trimmedMessage) }]);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown request error.';
+      const message = `Gemini is unavailable: ${reason}`;
+      setMessages((currentMessages) => [...currentMessages, { id: makeId(), role: 'assistant', content: message }]);
     } finally {
       setIsLoading(false);
     }

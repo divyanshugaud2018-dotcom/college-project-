@@ -245,18 +245,37 @@ not migrated into Supabase; users need to create new accounts and content.
 
 ## Deployment notes
 
-`npm run build` builds the frontend, but it does not deploy the Supabase schema
-or create production API routes. Gemini chat and the Gmail OTP helper are
-implemented as Vite development-server middleware in `vite.config.ts`; that
-middleware is not automatically available when serving the static production
-bundle. Before production deployment, provide server-side equivalents for the
-API routes used by the app, including `/api/ai/chat` and any Gmail OTP routes
-you intend to use. Keep all provider credentials in server-side deployment
-secrets.
+### Deploy to Vercel
 
-The Supabase migration and Auth redirect allow-list must also be configured for
-the production project and application URL. Do not expose service-role,
-Gemini, or Gmail OAuth secrets in browser code.
+The repository includes Vercel configuration for the Vite production build,
+single-page application routes, and the serverless `/api/ai/chat` endpoint.
+
+1. Import this Git repository in Vercel and keep the project root at the
+   repository root. The checked-in `vercel.json` sets the build command to
+   `npm run build` and the output directory to `dist`.
+2. In **Project Settings → Environment Variables**, add these values for the
+   environments where you plan to deploy:
+
+   | Variable | Required | Notes |
+   | --- | --- | --- |
+   | `VITE_SUPABASE_URL` | Yes | Supabase project URL. |
+   | `VITE_SUPABASE_ANON_KEY` | Yes | Supabase publishable/anon key only; this is exposed to the browser. |
+   | `GEMINI_API_KEY` | No | Server-side key for Nest AI. Do not use the `VITE_` prefix. |
+   | `GEMINI_MODEL` | No | Optional Gemini model override. |
+
+3. Deploy. Redeploy after changing environment variables.
+4. In Supabase **Authentication → URL Configuration**, set the production site
+   URL and add the deployed Vercel URL to the allowed redirect URLs. Confirm
+   that the production database migration has been applied as described in
+   [Supabase setup](#supabase-setup).
+5. Test the app, sign-up/email confirmation, password recovery, and `/api/ai/chat`
+   on the deployed URL.
+
+The Gmail OTP endpoints in `vite.config.ts` are development middleware only
+and are not deployed as Vercel functions. The current signup flow uses Supabase
+Auth email confirmation instead, so Gmail OAuth variables are not needed for
+this deployment. Do not expose service-role, Gemini, or Gmail OAuth secrets in
+browser code.
 
 ## Troubleshooting
 

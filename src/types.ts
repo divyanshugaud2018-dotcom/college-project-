@@ -7,6 +7,7 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  requestedRole: 'faculty' | 'admin' | null;
   department: string;
   year: string; // '1st Year', '2nd Year', '3rd Year', '4th Year', 'PG/Master', 'Faculty'
   rollNumber: string;

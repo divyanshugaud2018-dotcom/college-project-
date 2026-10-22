@@ -31,7 +31,9 @@ import {
   getDoubts,
   getAnswers,
   getCurrentUser,
-  STORAGE_EVENT
+  STORAGE_EVENT,
+  DATABASE_ERROR_EVENT,
+  PASSWORD_RECOVERY_EVENT,
 } from './services/storage';
 import { Doubt, Category } from './types';
 
@@ -59,14 +61,10 @@ const DEPARTMENTS = [
 const SEMESTERS = ['All Semesters', 'Sem 1', 'Sem 2', 'Sem 3', 'Sem 4', 'Sem 5', 'Sem 6', 'Sem 7', 'Sem 8'];
 
 export default function App() {
-  // Initialize storage with seed data
-  useEffect(() => {
-    initStorage();
-  }, []);
-
   const [doubts, setDoubts] = useState<Doubt[]>([]);
   const [answers, setAnswers] = useState(getAnswers());
   const [currentUser, setCurrentUser] = useState(getCurrentUser());
+  const [databaseError, setDatabaseError] = useState('');
 
   // UI state
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,6 +78,7 @@ export default function App() {
 
   // Modals
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [isAskOpen, setIsAskOpen] = useState(false);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [reportConfig, setReportConfig] = useState<{
@@ -106,6 +105,28 @@ export default function App() {
       document.documentElement.classList.remove('dark');
     }
   }, [darkMode]);
+
+  useEffect(() => {
+    const handleDatabaseError = (event: Event) => {
+      const detail = (event as CustomEvent<{ message: string }>).detail;
+      setDatabaseError(detail?.message || 'The Supabase request failed.');
+    };
+    const handlePasswordRecovery = () => {
+      setPasswordRecovery(true);
+      setIsAuthOpen(true);
+    };
+    window.addEventListener(DATABASE_ERROR_EVENT, handleDatabaseError);
+    window.addEventListener(PASSWORD_RECOVERY_EVENT, handlePasswordRecovery);
+    void initStorage().catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Unable to load data from Supabase.';
+      setDatabaseError(message);
+      console.error('Supabase initialization failed:', error);
+    });
+    return () => {
+      window.removeEventListener(DATABASE_ERROR_EVENT, handleDatabaseError);
+      window.removeEventListener(PASSWORD_RECOVERY_EVENT, handlePasswordRecovery);
+    };
+  }, []);
 
   // Sync data from storage changes
   const refreshData = () => {
@@ -192,6 +213,21 @@ export default function App() {
         setDarkMode={setDarkMode}
         onSelectDoubt={(id) => setSelectedDoubtId(id)}
       />
+
+      {databaseError && (
+        <div role="alert" className="mx-auto mt-3 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/50 dark:text-rose-200">
+            <span>Database error: {databaseError}</span>
+            <button
+              type="button"
+              onClick={() => setDatabaseError('')}
+              className="shrink-0 font-semibold underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -396,7 +432,12 @@ export default function App() {
       </footer>
 
       {/* MODALS */}
-      <AuthModal isOpen={isAuthOpen} onClose={() => setIsAuthOpen(false)} />
+      <AuthModal
+        isOpen={isAuthOpen}
+        onClose={() => setIsAuthOpen(false)}
+        passwordRecovery={passwordRecovery}
+        onPasswordRecoveryComplete={() => setPasswordRecovery(false)}
+      />
 
       <AskDoubtModal
         isOpen={isAskOpen}

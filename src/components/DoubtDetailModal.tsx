@@ -72,27 +72,29 @@ export const DoubtDetailModal: React.FC<DoubtDetailModalProps> = ({
   const isAdmin = user?.role === 'admin';
   const isFaculty = user?.role === 'faculty';
 
-  const handlePostAnswer = (e: React.FormEvent) => {
+  const handlePostAnswer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newAnswerText.trim()) return;
 
-    createAnswer(doubt.id, newAnswerText.trim(), isAnsAnon);
+    const created = await createAnswer(doubt.id, newAnswerText.trim(), isAnsAnon);
+    if (!created) return;
     setNewAnswerText('');
     setIsAnsAnon(false);
   };
 
-  const handleCommentSubmit = (ansId: string) => {
+  const handleCommentSubmit = async (ansId: string) => {
     const text = commentInputs[ansId];
     if (!text || !text.trim()) return;
 
-    addAnswerComment(ansId, text.trim());
+    const added = await addAnswerComment(ansId, text.trim());
+    if (!added) return;
     setCommentInputs({ ...commentInputs, [ansId]: '' });
   };
 
-  const handleDeleteDoubt = () => {
+  const handleDeleteDoubt = async () => {
     if (confirm('Are you sure you want to delete this doubt?')) {
-      deleteDoubt(doubt.id);
-      onClose();
+      const deleted = await deleteDoubt(doubt.id);
+      if (deleted) onClose();
     }
   };
 

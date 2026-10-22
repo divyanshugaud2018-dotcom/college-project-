@@ -23,15 +23,16 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    submitReport({
+    const submitted = await submitReport({
       targetType,
       targetId,
       doubtId,
       reason,
       details: details.trim(),
     });
+    if (!submitted) return;
     setIsDone(true);
     setTimeout(() => {
       setIsDone(false);

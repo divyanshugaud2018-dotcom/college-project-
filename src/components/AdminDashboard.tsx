@@ -34,9 +34,11 @@ import {
   getDoubts,
   getAnswers,
   getReports,
+  getAdminUsers,
   getActivityData,
   getDeptStats,
   updateUserStatus,
+  reviewRoleRequest,
   reviewReport,
   STORAGE_EVENT
 } from '../services/storage';
@@ -63,6 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectDoubt })
   };
 
   useEffect(() => {
+    void getAdminUsers();
     refreshData();
     window.addEventListener(STORAGE_EVENT, refreshData);
     return () => window.removeEventListener(STORAGE_EVENT, refreshData);
@@ -71,6 +74,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectDoubt })
   const totalAnswers = getAnswers().length;
   const activeUsers = users.filter((u) => u.status === 'active').length;
   const pendingReports = reports.filter((r) => r.status === 'pending');
+  const pendingRoleRequests = users.filter((user) => user.requestedRole !== null);
   const anonymousDoubts = doubts.filter((d) => d.isAnonymous);
 
   const filteredUsers = users.filter(
@@ -272,7 +276,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectDoubt })
               <h3 className="text-sm font-bold text-slate-900 dark:text-white">
                 Campus User Directory & Permissions
               </h3>
-              <p className="text-xs text-slate-500">Manage user account statuses, suspensions, and roles</p>
+              <p className="text-xs text-slate-500">Review staff access requests and manage user account statuses</p>
             </div>
 
             <div className="relative max-w-xs">
@@ -286,6 +290,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectDoubt })
               />
             </div>
           </div>
+
+          {pendingRoleRequests.length > 0 && (
+            <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+              <h4 className="mb-3 text-xs font-bold text-amber-900 dark:text-amber-200">
+                Staff access requests ({pendingRoleRequests.length})
+              </h4>
+              <div className="space-y-2">
+                {pendingRoleRequests.map((user) => (
+                  <div key={user.id} className="flex flex-col gap-3 rounded-lg bg-white p-3 text-xs dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-900 dark:text-white">{user.name} requests {user.requestedRole}</p>
+                      <p className="text-slate-500 dark:text-slate-400">{user.email} · {user.department}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => void reviewRoleRequest(user.id, true)}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 font-bold text-white hover:bg-emerald-700"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => void reviewRoleRequest(user.id, false)}
+                        className="rounded-lg border border-slate-300 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">

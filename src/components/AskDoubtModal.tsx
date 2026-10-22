@@ -43,7 +43,7 @@ export const AskDoubtModal: React.FC<AskDoubtModalProps> = ({ isOpen, onClose, o
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -58,7 +58,7 @@ export const AskDoubtModal: React.FC<AskDoubtModalProps> = ({ isOpen, onClose, o
       .filter((t) => t.length > 0);
 
     try {
-      const newDoubt = createDoubt({
+      const newDoubt = await createDoubt({
         title: title.trim(),
         content: content.trim(),
         category,
@@ -68,6 +68,7 @@ export const AskDoubtModal: React.FC<AskDoubtModalProps> = ({ isOpen, onClose, o
         tags,
         isAnonymous,
       });
+      if (!newDoubt) return;
 
       // Reset form
       setTitle('');

@@ -1,213 +1,462 @@
-import {
-  User,
-  Doubt,
-  Answer,
-  Report,
-  NotificationItem,
+import type { AuthError, User as AuthUser } from '@supabase/supabase-js';
+import type {
   ActivityData,
-  DepartmentStat,
+  Answer,
+  AnswerComment,
   Category,
-  UserRole
+  DepartmentStat,
+  Doubt,
+  NotificationItem,
+  Report,
+  User,
+  UserRole,
+  UserStatus,
 } from '../types';
-import {
-  INITIAL_USERS,
-  INITIAL_DOUBTS,
-  INITIAL_ANSWERS,
-  INITIAL_REPORTS,
-  INITIAL_NOTIFICATIONS,
-  INITIAL_ACTIVITY,
-  INITIAL_DEPT_STATS
-} from '../data/seedData';
+import { getSupabaseClient } from './supabase';
 
-const STORAGE_KEYS = {
-  CURRENT_USER: 'doubtnest_current_user',
-  USERS: 'doubtnest_users',
-  DOUBTS: 'doubtnest_doubts',
-  ANSWERS: 'doubtnest_answers',
-  REPORTS: 'doubtnest_reports',
-  NOTIFICATIONS: 'doubtnest_notifications',
-  ACTIVITY: 'doubtnest_activity',
-  DEPT_STATS: 'doubtnest_dept_stats',
-  THEME: 'doubtnest_theme',
-};
-
-// Event emitter for reactive state updates
 export const STORAGE_EVENT = 'doubtnest_storage_update';
+export const DATABASE_ERROR_EVENT = 'doubtnest_database_error';
+export const PASSWORD_RECOVERY_EVENT = 'doubtnest_password_recovery';
+
+let currentUser: User | null = null;
+let users: User[] = [];
+let doubts: Doubt[] = [];
+let answers: Answer[] = [];
+let reports: Report[] = [];
+let notifications: NotificationItem[] = [];
+let authSubscriptionStarted = false;
+
+type DbRow = Record<string, unknown>;
 
 function notifyStorageChange() {
   window.dispatchEvent(new Event(STORAGE_EVENT));
 }
 
-// Initialize LocalStorage with seed data if empty
-export function initStorage() {
-  if (!localStorage.getItem(STORAGE_KEYS.USERS)) {
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.DOUBTS)) {
-    localStorage.setItem(STORAGE_KEYS.DOUBTS, JSON.stringify(INITIAL_DOUBTS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.ANSWERS)) {
-    localStorage.setItem(STORAGE_KEYS.ANSWERS, JSON.stringify(INITIAL_ANSWERS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.REPORTS)) {
-    localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(INITIAL_REPORTS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS)) {
-    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(INITIAL_NOTIFICATIONS));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.ACTIVITY)) {
-    localStorage.setItem(STORAGE_KEYS.ACTIVITY, JSON.stringify(INITIAL_ACTIVITY));
-  }
-  if (!localStorage.getItem(STORAGE_KEYS.DEPT_STATS)) {
-    localStorage.setItem(STORAGE_KEYS.DEPT_STATS, JSON.stringify(INITIAL_DEPT_STATS));
+function formatDatabaseError(error: unknown): string {
+  const rawMessage = error instanceof Error ? error.message : typeof error === 'string' ? error : 'A database request failed.';
+  const lowerMessage = rawMessage.toLowerCase();
+
+  if (/permission denied.*(?:table|relation).*doubts|permission denied.*(?:community_doubts|community_answers|community_profiles)/i.test(rawMessage)) {
+    return 'Supabase permissions are misconfigured. Run the project SQL migration again and set the community views to security_invoker = false.';
   }
 
-  // Default login as Student (Rohan Gupta) if none logged in
-  if (!localStorage.getItem(STORAGE_KEYS.CURRENT_USER)) {
-    const users = getUsers();
-    const defaultUser = users.find(u => u.id === 'user-student-1') || users[0];
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(defaultUser));
+  if (/permission denied/i.test(lowerMessage)) {
+    return 'Supabase rejected the request because the database roles or RLS policy setup is incomplete.';
   }
+
+  return rawMessage;
 }
 
-// Current User Session
-export function getCurrentUser(): User | null {
-  const data = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-  return data ? JSON.parse(data) : null;
+function showDatabaseError(error: unknown) {
+  const message = formatDatabaseError(error);
+  console.error('Supabase request failed:', error);
+  window.dispatchEvent(new CustomEvent(DATABASE_ERROR_EVENT, { detail: { message } }));
 }
 
-export function setCurrentUser(user: User | null) {
-  if (user) {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(user));
-  } else {
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+function requireData<T>(data: T | null, error: { message: string } | null): T {
+  if (error) throw new Error(error.message);
+  if (data === null) throw new Error('Supabase returned no data.');
+  return data;
+}
+
+function asString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function asNumber(value: unknown): number {
+  return typeof value === 'number' ? value : Number(value) || 0;
+}
+
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+function mapProfile(row: DbRow): User {
+  const requestedRole = asString(row.requested_role);
+  return {
+    id: asString(row.id),
+    email: asString(row.email),
+    name: asString(row.full_name),
+    role: (asString(row.role) || 'student') as UserRole,
+    requestedRole: requestedRole === 'faculty' || requestedRole === 'admin' ? requestedRole : null,
+    department: asString(row.department),
+    year: asString(row.year),
+    rollNumber: asString(row.roll_number),
+    avatar: asString(row.avatar),
+    status: (asString(row.status) || 'active') as UserStatus,
+    isVerified: Boolean(row.is_verified),
+    reputationPoints: asNumber(row.reputation_points),
+    createdAt: asString(row.created_at),
+    savedDoubts: asStringArray(row.saved_doubts),
+  };
+}
+
+function mapDoubt(row: DbRow): Doubt {
+  return {
+    id: asString(row.id),
+    title: asString(row.title),
+    content: asString(row.content),
+    authorId: asString(row.author_id),
+    authorName: asString(row.author_name),
+    authorRole: (asString(row.author_role) || 'student') as UserRole,
+    authorDepartment: asString(row.author_department),
+    isAnonymous: Boolean(row.is_anonymous),
+    category: asString(row.category) as Category,
+    department: asString(row.department),
+    subject: asString(row.subject),
+    semester: asString(row.semester),
+    tags: asStringArray(row.tags),
+    votes: asNumber(row.votes),
+    upvotedBy: asStringArray(row.upvoted_by),
+    createdAt: asString(row.created_at),
+    isClosed: Boolean(row.is_closed),
+    views: asNumber(row.views),
+  };
+}
+
+function mapComment(value: unknown): AnswerComment {
+  const row = (value ?? {}) as DbRow;
+  return {
+    id: asString(row.id),
+    answerId: asString(row.answerId ?? row.answer_id),
+    content: asString(row.content),
+    authorId: asString(row.authorId ?? row.author_id),
+    authorName: asString(row.authorName ?? row.author_name),
+    authorRole: (asString(row.authorRole ?? row.author_role) || 'student') as UserRole,
+    createdAt: asString(row.createdAt ?? row.created_at),
+  };
+}
+
+function mapAnswer(row: DbRow): Answer {
+  const commentRows = Array.isArray(row.comments) ? row.comments : [];
+  return {
+    id: asString(row.id),
+    doubtId: asString(row.doubt_id),
+    content: asString(row.content),
+    authorId: asString(row.author_id),
+    authorName: asString(row.author_name),
+    authorRole: (asString(row.author_role) || 'student') as UserRole,
+    authorDepartment: asString(row.author_department),
+    authorAvatar: asString(row.author_avatar),
+    isAnonymous: Boolean(row.is_anonymous),
+    upvotes: asNumber(row.upvotes),
+    upvotedBy: asStringArray(row.upvoted_by),
+    correctVotes: asNumber(row.correct_votes),
+    incorrectVotes: asNumber(row.incorrect_votes),
+    votedCorrectBy: asStringArray(row.voted_correct_by),
+    votedIncorrectBy: asStringArray(row.voted_incorrect_by),
+    isBestAnswer: Boolean(row.is_best_answer),
+    isVerifiedCorrect: Boolean(row.is_verified_correct),
+    createdAt: asString(row.created_at),
+    updatedAt: asString(row.updated_at) || undefined,
+    comments: commentRows.map(mapComment),
+  };
+}
+
+function mapReport(row: DbRow): Report {
+  return {
+    id: asString(row.id),
+    targetType: asString(row.target_type) as Report['targetType'],
+    targetId: asString(row.target_id),
+    doubtId: asString(row.doubt_id),
+    reporterId: asString(row.reporter_id),
+    reporterName: asString(row.reporter_name),
+    reason: asString(row.reason) as Report['reason'],
+    details: asString(row.details),
+    status: asString(row.status) as Report['status'],
+    createdAt: asString(row.created_at),
+  };
+}
+
+function mapNotification(row: DbRow): NotificationItem {
+  return {
+    id: asString(row.id),
+    userId: asString(row.user_id),
+    type: asString(row.type) as NotificationItem['type'],
+    title: asString(row.title),
+    message: asString(row.message),
+    linkDoubtId: asString(row.link_doubt_id),
+    isRead: Boolean(row.is_read),
+    createdAt: asString(row.created_at),
+  };
+}
+
+async function loadOwnProfile(authUser: AuthUser): Promise<User | null> {
+  const client = getSupabaseClient();
+  const { data, error } = await client.from('profiles').select('*').eq('id', authUser.id).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+
+  const profile = mapProfile({ ...data, email: authUser.email ?? '' });
+  if (profile.status !== 'active') {
+    await client.auth.signOut();
+    currentUser = null;
+    notifyStorageChange();
+    throw new Error(profile.status === 'blocked'
+      ? 'This account has been blocked by an administrator.'
+      : 'This account is suspended.');
   }
-  notifyStorageChange();
+  return profile;
 }
 
-// Users
-export function getUsers(): User[] {
-  const data = localStorage.getItem(STORAGE_KEYS.USERS);
-  return data ? JSON.parse(data) : INITIAL_USERS;
-}
+async function loadCommunityData(authUser?: AuthUser | null) {
+  const client = getSupabaseClient();
+  const [profileResult, doubtResult, answerResult] = await Promise.all([
+    client.from('community_profiles').select('*').order('created_at', { ascending: false }),
+    client.from('community_doubts').select('*').order('created_at', { ascending: false }),
+    client.from('community_answers').select('*').order('created_at', { ascending: true }),
+  ]);
 
-export function saveUsers(users: User[]) {
-  localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
-  // Update current user if modified
-  const current = getCurrentUser();
-  if (current) {
-    const updated = users.find(u => u.id === current.id);
-    if (updated) {
-      localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(updated));
+  users = requireData(profileResult.data, profileResult.error).map((row) => mapProfile(row as DbRow));
+  doubts = requireData(doubtResult.data, doubtResult.error).map((row) => mapDoubt(row as DbRow));
+  answers = requireData(answerResult.data, answerResult.error).map((row) => mapAnswer(row as DbRow));
+  reports = [];
+  notifications = [];
+  currentUser = authUser ? await loadOwnProfile(authUser) : null;
+
+  if (currentUser) {
+    const [bookmarkResult, notificationResult] = await Promise.all([
+      client.from('my_bookmarks').select('doubt_id'),
+      client.from('notifications').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false }),
+    ]);
+    currentUser.savedDoubts = requireData(bookmarkResult.data, bookmarkResult.error)
+      .map((row) => asString((row as DbRow).doubt_id));
+    notifications = requireData(notificationResult.data, notificationResult.error)
+      .map((row) => mapNotification(row as DbRow));
+    users = users.map((user) => user.id === currentUser?.id ? currentUser : user);
+
+    if (currentUser.role === 'admin') {
+      const [adminProfiles, reportResult] = await Promise.all([
+        client.rpc('get_admin_profiles'),
+        client.from('admin_reports').select('*').order('created_at', { ascending: false }),
+      ]);
+      users = requireData(adminProfiles.data, adminProfiles.error).map((row) => mapProfile(row as DbRow));
+      reports = requireData(reportResult.data, reportResult.error).map((row) => {
+        const mapped = mapReport(row as DbRow);
+        mapped.reporterName = asString((row as DbRow).reporter_name);
+        return mapped;
+      });
     }
   }
   notifyStorageChange();
 }
 
-export function awardReputation(userId: string, points: number) {
-  const users = getUsers();
-  const index = users.findIndex(u => u.id === userId);
-  if (index !== -1) {
-    users[index].reputationPoints = Math.max(0, (users[index].reputationPoints || 0) + points);
-    saveUsers(users);
+async function handleAuthUser(authUser: AuthUser | null) {
+  try {
+    await loadCommunityData(authUser);
+  } catch (error) {
+    showDatabaseError(error);
   }
 }
 
-// College Email Validation helper
-export function isCollegeEmail(email: string): boolean {
-  const cleaned = email.trim().toLowerCase();
-  return /^[^\s@]+@[^\s@]+\.ac\.in$/.test(cleaned);
+export async function initStorage(): Promise<void> {
+  const client = getSupabaseClient();
+  if (!authSubscriptionStarted) {
+    authSubscriptionStarted = true;
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        window.dispatchEvent(new Event(PASSWORD_RECOVERY_EVENT));
+      }
+      void handleAuthUser(session?.user ?? null);
+    });
+  }
+  const { data, error } = await client.auth.getSession();
+  if (error) throw new Error(error.message);
+  await loadCommunityData(data.session?.user ?? null);
 }
 
-// Auth Actions
-export function registerCollegeUser(
+export function getCurrentUser(): User | null {
+  return currentUser;
+}
+
+export function getUsers(): User[] {
+  return users;
+}
+
+export async function getAdminUsers(): Promise<User[]> {
+  if (currentUser?.role !== 'admin') return [];
+  try {
+    const { data, error } = await getSupabaseClient().rpc('get_admin_profiles');
+    users = requireData(data, error).map((row) => mapProfile(row as DbRow));
+    notifyStorageChange();
+    return users;
+  } catch (error) {
+    showDatabaseError(error);
+    return [];
+  }
+}
+
+export async function reviewRoleRequest(userId: string, approve: boolean): Promise<boolean> {
+  const succeeded = await writeRpc('review_role_request', {
+    p_user_id: userId,
+    p_approve: approve,
+  });
+  if (!succeeded) return false;
+  await getAdminUsers();
+  return true;
+}
+
+export async function saveUsers(updatedUsers: User[]): Promise<boolean> {
+  const profile = currentUser && updatedUsers.find((user) => user.id === currentUser?.id);
+  if (!profile) throw new Error('Your profile could not be found.');
+  return writeRpc('update_my_profile', {
+    p_full_name: profile.name,
+    p_department: profile.department,
+    p_year: profile.year,
+    p_roll_number: profile.rollNumber,
+    p_avatar: profile.avatar,
+  });
+}
+
+export function awardReputation(_userId: string, _points: number): void {
+  throw new Error('Reputation is managed by secure database operations.');
+}
+
+export function isCollegeEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.ac\.in$/i.test(email.trim());
+}
+
+function authResultError(error: AuthError): string {
+  if (/invalid login credentials/i.test(error.message)) return 'Email or password is incorrect.';
+  if (/email not confirmed/i.test(error.message)) return 'Confirm your email address before signing in.';
+  return error.message;
+}
+
+export async function loginCollegeUser(email: string, password: string): Promise<{ success: boolean; message: string }> {
+  if (!isCollegeEmail(email)) return { success: false, message: 'Use your college .ac.in email address.' };
+  try {
+    const { data, error } = await getSupabaseClient().auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (error) return { success: false, message: authResultError(error) };
+    if (!data.user) return { success: false, message: 'Supabase did not return an authenticated user.' };
+    await loadCommunityData(data.user);
+    if (!currentUser) return { success: false, message: 'Your account profile is not ready. Contact an administrator.' };
+    return { success: true, message: 'Logged in successfully.' };
+  } catch (error) {
+    showDatabaseError(error);
+    return { success: false, message: error instanceof Error ? error.message : 'Unable to sign in.' };
+  }
+}
+
+export async function registerCollegeUser(
   email: string,
+  password: string,
   name: string,
   role: UserRole,
   department: string,
   year: string,
   rollNumber: string,
-  avatar?: string
-): { success: boolean; message: string; user?: User } {
-  if (!isCollegeEmail(email)) {
-    return {
-      success: false,
-      message: 'Access denied: You must use a valid college email address ending in .ac.in (e.g. name@college.ac.in).'
-    };
-  }
-
-  const users = getUsers();
-  const existing = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-  if (existing) {
-    return { success: false, message: 'An account with this college email already exists.' };
-  }
-
-  const defaultAvatar = `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200`;
-
-  const newUser: User = {
-    id: `user-${Date.now()}`,
+  avatar?: string,
+): Promise<{ success: boolean; message: string }> {
+  if (!isCollegeEmail(email)) return { success: false, message: 'Use a college email ending in .ac.in.' };
+  const { data, error } = await getSupabaseClient().auth.signUp({
     email: email.trim().toLowerCase(),
-    name,
-    role,
-    department,
-    year,
-    rollNumber,
-    avatar: avatar || defaultAvatar,
-    status: 'active',
-    isVerified: true, // Email verification simulated step
-    reputationPoints: 10,
-    createdAt: new Date().toISOString(),
-    savedDoubts: [],
+    password,
+    options: {
+      emailRedirectTo: window.location.origin,
+      data: {
+        full_name: name.trim(),
+        role,
+        department,
+        year,
+        roll_number: rollNumber.trim(),
+        avatar: avatar || '',
+      },
+    },
+  });
+  if (error) return { success: false, message: error.message };
+  if (data.session && data.user) await loadCommunityData(data.user);
+  return {
+    success: true,
+    message: data.session
+      ? 'Account created successfully.'
+      : 'A verification code has been sent to your email address.',
   };
-
-  users.push(newUser);
-  saveUsers(users);
-  setCurrentUser(newUser);
-
-  return { success: true, message: 'Account created successfully! Email verified.', user: newUser };
 }
 
-export function loginCollegeUser(email: string): { success: boolean; message: string; user?: User } {
-  const users = getUsers();
-  const user = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
-
-  if (!user) {
-    return { success: false, message: 'No registered account found with this email. Please sign up.' };
-  }
-
-  if (user.status === 'blocked') {
-    return { success: false, message: 'Your account has been permanently blocked by the College Administrator.' };
-  }
-
-  if (user.status === 'suspended') {
-    return { success: false, message: 'Your account is currently suspended due to policy violations.' };
-  }
-
-  setCurrentUser(user);
-  return { success: true, message: 'Logged in successfully.', user };
+export async function verifyCollegeSignup(email: string, token: string): Promise<{ success: boolean; message: string }> {
+  if (!isCollegeEmail(email)) return { success: false, message: 'Use a college email ending in .ac.in.' };
+  const { data, error } = await getSupabaseClient().auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: token.trim(),
+    type: 'signup',
+  });
+  if (error) return { success: false, message: error.message };
+  if (!data.user) return { success: false, message: 'The verification code did not return an account.' };
+  await loadCommunityData(data.user);
+  if (!currentUser) return { success: false, message: 'Your account profile could not be loaded.' };
+  return { success: true, message: 'Email verified and account created successfully.' };
 }
 
-export function switchUserRoleForDemo(role: UserRole) {
-  const users = getUsers();
-  let target = users.find(u => u.role === role);
-  if (!target) {
-    target = users[0];
-  }
-  setCurrentUser(target);
+export async function resendCollegeSignupOtp(email: string): Promise<{ success: boolean; message: string }> {
+  if (!isCollegeEmail(email)) return { success: false, message: 'Use a college email ending in .ac.in.' };
+  const { error } = await getSupabaseClient().auth.resend({
+    type: 'signup',
+    email: email.trim().toLowerCase(),
+  });
+  return error
+    ? { success: false, message: error.message }
+    : { success: true, message: 'A new verification code has been sent.' };
 }
 
-// Doubts
+export async function sendPasswordReset(email: string): Promise<{ success: boolean; message: string }> {
+  if (!isCollegeEmail(email)) return { success: false, message: 'Enter a valid college .ac.in email address.' };
+  const { error } = await getSupabaseClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+    redirectTo: window.location.origin,
+  });
+  return error
+    ? { success: false, message: error.message }
+    : { success: true, message: `If an account exists for ${email}, a password reset email has been sent.` };
+}
+
+export async function completePasswordReset(password: string): Promise<{ success: boolean; message: string }> {
+  if (password.length < 8) return { success: false, message: 'Choose a password with at least 8 characters.' };
+  const { error } = await getSupabaseClient().auth.updateUser({ password });
+  return error
+    ? { success: false, message: error.message }
+    : { success: true, message: 'Your password has been updated.' };
+}
+
+export async function signOut(): Promise<void> {
+  const { error } = await getSupabaseClient().auth.signOut();
+  if (error) showDatabaseError(error);
+}
+
 export function getDoubts(): Doubt[] {
-  const data = localStorage.getItem(STORAGE_KEYS.DOUBTS);
-  return data ? JSON.parse(data) : INITIAL_DOUBTS;
+  return doubts;
 }
 
-export function saveDoubts(doubts: Doubt[]) {
-  localStorage.setItem(STORAGE_KEYS.DOUBTS, JSON.stringify(doubts));
-  notifyStorageChange();
+export function getAnswers(): Answer[] {
+  return answers;
 }
 
-export function createDoubt(doubtData: {
+export function getReports(): Report[] {
+  return reports;
+}
+
+export function getNotifications(userId: string): NotificationItem[] {
+  return notifications.filter((item) => item.userId === userId);
+}
+
+function createId(): string {
+  return crypto.randomUUID();
+}
+
+async function writeRpc(name: string, parameters: Record<string, unknown>): Promise<boolean> {
+  try {
+    const { error } = await getSupabaseClient().rpc(name, parameters);
+    if (error) throw new Error(error.message);
+    await loadCommunityData((await getSupabaseClient().auth.getUser()).data.user);
+    return true;
+  } catch (error) {
+    showDatabaseError(error);
+    return false;
+  }
+}
+
+export async function createDoubt(doubtData: {
   title: string;
   content: string;
   category: Category;
@@ -216,433 +465,127 @@ export function createDoubt(doubtData: {
   semester: string;
   tags: string[];
   isAnonymous: boolean;
-}): Doubt {
-  const currentUser = getCurrentUser();
-  if (!currentUser) throw new Error('User must be logged in to post a doubt');
-
-  const doubts = getDoubts();
-  const newDoubt: Doubt = {
-    id: `doubt-${Date.now()}`,
-    title: doubtData.title,
-    content: doubtData.content,
-    authorId: currentUser.id,
-    authorName: currentUser.name,
-    authorRole: currentUser.role,
-    authorDepartment: currentUser.department,
-    isAnonymous: doubtData.isAnonymous,
-    category: doubtData.category,
-    department: doubtData.department,
-    subject: doubtData.subject,
-    semester: doubtData.semester,
-    tags: doubtData.tags,
-    votes: 0,
-    upvotedBy: [],
-    createdAt: new Date().toISOString(),
-    isClosed: false,
-    views: 1,
-  };
-
-  doubts.unshift(newDoubt);
-  saveDoubts(doubts);
-  awardReputation(currentUser.id, 5);
-
-  return newDoubt;
+}): Promise<Doubt | null> {
+  if (!currentUser) throw new Error('Sign in before posting a doubt.');
+  const id = createId();
+  const succeeded = await writeRpc('create_doubt', { p_id: id, p_data: doubtData });
+  return succeeded ? doubts.find((doubt) => doubt.id === id) ?? null : null;
 }
 
-export function toggleUpvoteDoubt(doubtId: string): Doubt | null {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return null;
+export async function toggleUpvoteDoubt(doubtId: string): Promise<void> {
+  await writeRpc('toggle_doubt_vote', { p_doubt_id: doubtId });
+}
 
-  const doubts = getDoubts();
-  const index = doubts.findIndex(d => d.id === doubtId);
-  if (index === -1) return null;
-
-  const doubt = doubts[index];
-  const hasUpvoted = doubt.upvotedBy.includes(currentUser.id);
-
-  if (hasUpvoted) {
-    doubt.upvotedBy = doubt.upvotedBy.filter(id => id !== currentUser.id);
-    doubt.votes -= 1;
-  } else {
-    doubt.upvotedBy.push(currentUser.id);
-    doubt.votes += 1;
+export async function toggleSaveBookmark(doubtId: string): Promise<boolean> {
+  try {
+    const { data, error } = await getSupabaseClient().rpc('toggle_bookmark', { p_doubt_id: doubtId });
+    if (error) throw new Error(error.message);
+    await loadCommunityData((await getSupabaseClient().auth.getUser()).data.user);
+    return Boolean(data);
+  } catch (error) {
+    showDatabaseError(error);
+    return false;
   }
-
-  saveDoubts(doubts);
-  return doubt;
 }
 
-export function toggleSaveBookmark(doubtId: string): boolean {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return false;
-
-  const users = getUsers();
-  const userIdx = users.findIndex(u => u.id === currentUser.id);
-  if (userIdx === -1) return false;
-
-  const user = users[userIdx];
-  const isSaved = user.savedDoubts.includes(doubtId);
-
-  if (isSaved) {
-    user.savedDoubts = user.savedDoubts.filter(id => id !== doubtId);
-  } else {
-    user.savedDoubts.push(doubtId);
-  }
-
-  saveUsers(users);
-  return !isSaved;
+export async function deleteDoubt(doubtId: string): Promise<boolean> {
+  return writeRpc('delete_doubt', { p_doubt_id: doubtId });
 }
 
-export function deleteDoubt(doubtId: string) {
-  const doubts = getDoubts().filter(d => d.id !== doubtId);
-  saveDoubts(doubts);
-
-  // Also remove associated answers
-  const answers = getAnswers().filter(a => a.doubtId !== doubtId);
-  saveAnswers(answers);
-}
-
-// Answers
-export function getAnswers(): Answer[] {
-  const data = localStorage.getItem(STORAGE_KEYS.ANSWERS);
-  return data ? JSON.parse(data) : INITIAL_ANSWERS;
-}
-
-export function saveAnswers(answers: Answer[]) {
-  localStorage.setItem(STORAGE_KEYS.ANSWERS, JSON.stringify(answers));
-  notifyStorageChange();
-}
-
-export function createAnswer(doubtId: string, content: string, isAnonymous: boolean): Answer {
-  const currentUser = getCurrentUser();
-  if (!currentUser) throw new Error('Must be logged in');
-
-  const answers = getAnswers();
-  const newAnswer: Answer = {
-    id: `ans-${Date.now()}`,
-    doubtId,
-    content,
-    authorId: currentUser.id,
-    authorName: currentUser.name,
-    authorRole: currentUser.role,
-    authorDepartment: currentUser.department,
-    authorAvatar: currentUser.avatar,
-    isAnonymous,
-    upvotes: 0,
-    upvotedBy: [],
-    correctVotes: 0,
-    incorrectVotes: 0,
-    votedCorrectBy: [],
-    votedIncorrectBy: [],
-    isBestAnswer: false,
-    isVerifiedCorrect: currentUser.role === 'faculty' || currentUser.role === 'admin',
-    createdAt: new Date().toISOString(),
-    comments: [],
-  };
-
-  answers.push(newAnswer);
-  saveAnswers(answers);
-
-  // Award points
-  awardReputation(currentUser.id, 10);
-
-  // Notify question author
-  const doubts = getDoubts();
-  const doubt = doubts.find(d => d.id === doubtId);
-  if (doubt && doubt.authorId !== currentUser.id) {
-    addNotification({
-      userId: doubt.authorId,
-      type: 'new_answer',
-      title: 'New answer on your doubt',
-      message: `${isAnonymous ? 'An anonymous user' : currentUser.name} answered your doubt: "${doubt.title.substring(0, 40)}..."`,
-      linkDoubtId: doubtId,
-    });
-  }
-
-  return newAnswer;
-}
-
-export function toggleUpvoteAnswer(answerId: string) {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return;
-
-  const answers = getAnswers();
-  const index = answers.findIndex(a => a.id === answerId);
-  if (index === -1) return;
-
-  const ans = answers[index];
-  const hasUpvoted = ans.upvotedBy.includes(currentUser.id);
-
-  if (hasUpvoted) {
-    ans.upvotedBy = ans.upvotedBy.filter(id => id !== currentUser.id);
-    ans.upvotes -= 1;
-    awardReputation(ans.authorId, -5);
-  } else {
-    ans.upvotedBy.push(currentUser.id);
-    ans.upvotes += 1;
-    awardReputation(ans.authorId, 5);
-  }
-
-  saveAnswers(answers);
-}
-
-export function voteAnswerCorrectness(answerId: string, isCorrectVote: boolean) {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return;
-
-  const answers = getAnswers();
-  const index = answers.findIndex(a => a.id === answerId);
-  if (index === -1) return;
-
-  const ans = answers[index];
-
-  if (isCorrectVote) {
-    // Check if already voted correct
-    if (ans.votedCorrectBy.includes(currentUser.id)) {
-      ans.votedCorrectBy = ans.votedCorrectBy.filter(id => id !== currentUser.id);
-      ans.correctVotes -= 1;
-    } else {
-      ans.votedCorrectBy.push(currentUser.id);
-      ans.correctVotes += 1;
-      // Remove from incorrect if voted
-      if (ans.votedIncorrectBy.includes(currentUser.id)) {
-        ans.votedIncorrectBy = ans.votedIncorrectBy.filter(id => id !== currentUser.id);
-        ans.incorrectVotes -= 1;
-      }
-    }
-  } else {
-    // Incorrect vote
-    if (ans.votedIncorrectBy.includes(currentUser.id)) {
-      ans.votedIncorrectBy = ans.votedIncorrectBy.filter(id => id !== currentUser.id);
-      ans.incorrectVotes -= 1;
-    } else {
-      ans.votedIncorrectBy.push(currentUser.id);
-      ans.incorrectVotes += 1;
-      // Remove from correct if voted
-      if (ans.votedCorrectBy.includes(currentUser.id)) {
-        ans.votedCorrectBy = ans.votedCorrectBy.filter(id => id !== currentUser.id);
-        ans.correctVotes -= 1;
-      }
-    }
-  }
-
-  saveAnswers(answers);
-}
-
-export function toggleBestAnswer(answerId: string) {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return;
-
-  const answers = getAnswers();
-  const targetIdx = answers.findIndex(a => a.id === answerId);
-  if (targetIdx === -1) return;
-
-  const target = answers[targetIdx];
-  const isNowBest = !target.isBestAnswer;
-
-  // Reset other best answers for same doubt
-  answers.forEach(a => {
-    if (a.doubtId === target.doubtId) {
-      a.isBestAnswer = false;
-    }
+export async function createAnswer(doubtId: string, content: string, isAnonymous: boolean): Promise<boolean> {
+  return writeRpc('create_answer', {
+    p_id: createId(),
+    p_doubt_id: doubtId,
+    p_content: content,
+    p_anonymous: isAnonymous,
   });
-
-  target.isBestAnswer = isNowBest;
-  saveAnswers(answers);
-
-  if (isNowBest) {
-    awardReputation(target.authorId, 25);
-
-    addNotification({
-      userId: target.authorId,
-      type: 'best_answer',
-      title: '🌟 Best Answer Selected!',
-      message: 'Your answer was marked as the Best Answer by the doubt author/faculty!',
-      linkDoubtId: target.doubtId,
-    });
-  }
 }
 
-export function toggleAdminVerifiedCorrect(answerId: string) {
-  const currentUser = getCurrentUser();
-  if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'faculty')) return;
-
-  const answers = getAnswers();
-  const targetIdx = answers.findIndex(a => a.id === answerId);
-  if (targetIdx === -1) return;
-
-  const target = answers[targetIdx];
-  target.isVerifiedCorrect = !target.isVerifiedCorrect;
-
-  saveAnswers(answers);
-
-  if (target.isVerifiedCorrect) {
-    awardReputation(target.authorId, 50);
-
-    addNotification({
-      userId: target.authorId,
-      type: 'verified_correct',
-      title: '✅ Answer Verified Correct',
-      message: `Faculty/Admin ${currentUser.name} verified your answer as official & correct!`,
-      linkDoubtId: target.doubtId,
-    });
-  }
+export async function toggleUpvoteAnswer(answerId: string): Promise<void> {
+  await writeRpc('toggle_answer_vote', { p_answer_id: answerId, p_vote: 'upvote' });
 }
 
-export function addAnswerComment(answerId: string, content: string) {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return;
-
-  const answers = getAnswers();
-  const index = answers.findIndex(a => a.id === answerId);
-  if (index === -1) return;
-
-  const ans = answers[index];
-  const newComment = {
-    id: `comm-${Date.now()}`,
-    answerId,
-    content,
-    authorId: currentUser.id,
-    authorName: currentUser.name,
-    authorRole: currentUser.role,
-    createdAt: new Date().toISOString(),
-  };
-
-  ans.comments.push(newComment);
-  saveAnswers(answers);
-
-  if (ans.authorId !== currentUser.id) {
-    addNotification({
-      userId: ans.authorId,
-      type: 'new_comment',
-      title: 'New comment on your answer',
-      message: `${currentUser.name} commented on your answer.`,
-      linkDoubtId: ans.doubtId,
-    });
-  }
+export async function voteAnswerCorrectness(answerId: string, isCorrectVote: boolean): Promise<void> {
+  await writeRpc('toggle_answer_vote', {
+    p_answer_id: answerId,
+    p_vote: isCorrectVote ? 'correct' : 'incorrect',
+  });
 }
 
-export function deleteAnswer(answerId: string) {
-  const answers = getAnswers().filter(a => a.id !== answerId);
-  saveAnswers(answers);
+export async function toggleBestAnswer(answerId: string): Promise<void> {
+  await writeRpc('toggle_best_answer', { p_answer_id: answerId });
 }
 
-// Reports
-export function getReports(): Report[] {
-  const data = localStorage.getItem(STORAGE_KEYS.REPORTS);
-  return data ? JSON.parse(data) : INITIAL_REPORTS;
+export async function toggleAdminVerifiedCorrect(answerId: string): Promise<void> {
+  await writeRpc('toggle_answer_verified', { p_answer_id: answerId });
 }
 
-export function submitReport(reportData: {
+export async function addAnswerComment(answerId: string, content: string): Promise<boolean> {
+  return writeRpc('add_answer_comment', { p_id: createId(), p_answer_id: answerId, p_content: content });
+}
+
+export async function deleteAnswer(answerId: string): Promise<void> {
+  await writeRpc('delete_answer', { p_answer_id: answerId });
+}
+
+export async function submitReport(reportData: {
   targetType: 'doubt' | 'answer';
   targetId: string;
   doubtId: string;
   reason: 'spam' | 'abuse' | 'fake_info' | 'other';
   details: string;
-}) {
-  const currentUser = getCurrentUser();
-  if (!currentUser) return;
-
-  const reports = getReports();
-  const newReport: Report = {
-    id: `rep-${Date.now()}`,
-    targetType: reportData.targetType,
-    targetId: reportData.targetId,
-    doubtId: reportData.doubtId,
-    reporterId: currentUser.id,
-    reporterName: currentUser.name,
-    reason: reportData.reason,
-    details: reportData.details,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  };
-
-  reports.unshift(newReport);
-  localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
-  notifyStorageChange();
-}
-
-export function reviewReport(reportId: string, action: 'dismiss' | 'remove_post') {
-  const reports = getReports();
-  const index = reports.findIndex(r => r.id === reportId);
-  if (index === -1) return;
-
-  const rep = reports[index];
-  rep.status = action === 'dismiss' ? 'dismissed' : 'action_taken';
-  localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
-
-  if (action === 'remove_post') {
-    if (rep.targetType === 'doubt') {
-      deleteDoubt(rep.targetId);
-    } else {
-      deleteAnswer(rep.targetId);
-    }
-  }
-
-  notifyStorageChange();
-}
-
-// Notifications
-export function getNotifications(userId: string): NotificationItem[] {
-  const data = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-  const all: NotificationItem[] = data ? JSON.parse(data) : INITIAL_NOTIFICATIONS;
-  return all.filter(n => n.userId === userId);
-}
-
-export function addNotification(notifData: Omit<NotificationItem, 'id' | 'isRead' | 'createdAt'>) {
-  const data = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-  const all: NotificationItem[] = data ? JSON.parse(data) : INITIAL_NOTIFICATIONS;
-
-  const newNotif: NotificationItem = {
-    ...notifData,
-    id: `notif-${Date.now()}`,
-    isRead: false,
-    createdAt: new Date().toISOString(),
-  };
-
-  all.unshift(newNotif);
-  localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(all));
-  notifyStorageChange();
-}
-
-export function markNotificationAsRead(notifId: string) {
-  const data = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-  const all: NotificationItem[] = data ? JSON.parse(data) : INITIAL_NOTIFICATIONS;
-  const item = all.find(n => n.id === notifId);
-  if (item) {
-    item.isRead = true;
-    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(all));
-    notifyStorageChange();
-  }
-}
-
-export function markAllNotificationsRead(userId: string) {
-  const data = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-  const all: NotificationItem[] = data ? JSON.parse(data) : INITIAL_NOTIFICATIONS;
-  all.forEach(n => {
-    if (n.userId === userId) n.isRead = true;
+}): Promise<boolean> {
+  return writeRpc('submit_report', {
+    p_id: createId(),
+    p_target_type: reportData.targetType,
+    p_target_id: reportData.targetId,
+    p_doubt_id: reportData.doubtId,
+    p_reason: reportData.reason,
+    p_details: reportData.details,
   });
-  localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(all));
-  notifyStorageChange();
 }
 
-// User Admin Management
-export function updateUserStatus(userId: string, newStatus: 'active' | 'suspended' | 'blocked') {
-  const users = getUsers();
-  const user = users.find(u => u.id === userId);
-  if (user) {
-    user.status = newStatus;
-    saveUsers(users);
-  }
+export async function reviewReport(reportId: string, action: 'dismiss' | 'remove_post'): Promise<void> {
+  await writeRpc('review_report', { p_report_id: reportId, p_action: action });
 }
 
-// Stats & Charts
+export async function markNotificationAsRead(notificationId: string): Promise<void> {
+  await writeRpc('mark_notification_read', { p_notification_id: notificationId });
+}
+
+export async function markAllNotificationsRead(_userId: string): Promise<void> {
+  await writeRpc('mark_notification_read', { p_notification_id: null });
+}
+
+export async function updateUserStatus(userId: string, status: UserStatus): Promise<void> {
+  await writeRpc('update_user_status', { p_user_id: userId, p_status: status });
+}
+
 export function getActivityData(): ActivityData[] {
-  const data = localStorage.getItem(STORAGE_KEYS.ACTIVITY);
-  return data ? JSON.parse(data) : INITIAL_ACTIVITY;
+  const days: ActivityData[] = [];
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = new Date();
+    date.setDate(date.getDate() - offset);
+    const key = date.toISOString().slice(0, 10);
+    days.push({
+      date: key,
+      doubts: doubts.filter((doubt) => doubt.createdAt.slice(0, 10) === key).length,
+      answers: answers.filter((answer) => answer.createdAt.slice(0, 10) === key).length,
+      activeUsers: 0,
+    });
+  }
+  return days;
 }
 
 export function getDeptStats(): DepartmentStat[] {
-  const data = localStorage.getItem(STORAGE_KEYS.DEPT_STATS);
-  return data ? JSON.parse(data) : INITIAL_DEPT_STATS;
+  const departments = new Set([
+    ...users.map((user) => user.department),
+    ...doubts.map((doubt) => doubt.department),
+  ]);
+  return Array.from(departments).filter(Boolean).map((department) => ({
+    department,
+    doubts: doubts.filter((doubt) => doubt.department === department).length,
+    answers: answers.filter((answer) => answer.authorDepartment === department).length,
+    users: users.filter((user) => user.department === department).length,
+  }));
 }

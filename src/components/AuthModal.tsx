@@ -1,12 +1,22 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { X, GraduationCap, Mail, Lock, User as UserIcon, Shield, CheckCircle, AlertCircle, RefreshCw, Upload, Camera, Sparkles } from 'lucide-react';
-import { registerCollegeUser, loginCollegeUser, isCollegeEmail } from '../services/storage';
-import { UserRole } from '../types';
+import {
+  registerCollegeUser,
+  resendCollegeSignupOtp,
+  loginCollegeUser,
+  sendPasswordReset,
+  completePasswordReset,
+  isCollegeEmail,
+  verifyCollegeSignup,
+} from '../services/storage';
+import type { UserRole } from '../types';
 import { AvatarCreatorModal } from './AvatarCreatorModal';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
+  passwordRecovery: boolean;
+  onPasswordRecoveryComplete: () => void;
 }
 
 const REGISTER_AVATARS = [
@@ -16,8 +26,33 @@ const REGISTER_AVATARS = [
   'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=crop&q=80&w=200', // female
 ];
 
-export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const [tab, setTab] = useState<'login' | 'register' | 'verify' | 'forgot'>('login');
+async function prepareAvatar(value: string): Promise<string> {
+  if (!value.startsWith('data:image/')) return value;
+
+  const image = new Image();
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error('The selected profile image could not be loaded.'));
+    image.src = value;
+  });
+
+  const scale = Math.min(1, 256 / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Unable to prepare the selected profile image.');
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.7);
+}
+
+export const AuthModal: React.FC<AuthModalProps> = ({
+  isOpen,
+  onClose,
+  passwordRecovery,
+  onPasswordRecoveryComplete,
+}) => {
+  const [tab, setTab] = useState<'login' | 'register' | 'verify' | 'forgot' | 'reset'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -33,6 +68,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isOpen) setTab(passwordRecovery ? 'reset' : 'login');
+  }, [isOpen, passwordRecovery]);
 
   if (!isOpen) return null;
 
@@ -53,22 +92,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
     setIsLoading(true);
 
-    setTimeout(() => {
-      setIsLoading(false);
-      const res = loginCollegeUser(email);
-      if (res.success) {
-        setSuccessMsg(res.message);
-        setTimeout(() => onClose(), 600);
-      } else {
-        setErrorMsg(res.message);
-      }
-    }, 400);
+    const res = await loginCollegeUser(email, password);
+    setIsLoading(false);
+    if (res.success) {
+      setSuccessMsg(res.message);
+      setTimeout(() => onClose(), 600);
+    } else {
+      setErrorMsg(res.message);
+    }
   };
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -85,63 +122,103 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setErrorMsg('Please fill in all required profile fields.');
       return;
     }
-
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/auth/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Unable to send verification code.');
-      setIsLoading(false);
-      setTab('verify');
-      setSuccessMsg(result.message);
-    } catch (error) {
-      setIsLoading(false);
-      setErrorMsg(error instanceof Error ? error.message : 'Unable to send verification code.');
+    if (password.length < 8) {
+      setErrorMsg('Choose a password with at least 8 characters.');
+      return;
     }
-  };
 
-  const handleConfirmVerification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
     setIsLoading(true);
-
     try {
-      const response = await fetch('/api/auth/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, code: verifyCode }),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Unable to verify email.');
-      setIsLoading(false);
-      const res = registerCollegeUser(email, name, role, department, year, rollNumber, avatar);
+      const profileAvatar = await prepareAvatar(avatar);
+      const res = await registerCollegeUser(email, password, name, role, department, year, rollNumber, profileAvatar);
       if (res.success) {
         setSuccessMsg(res.message);
-        setTimeout(() => onClose(), 800);
+        if (res.message.startsWith('A verification code')) {
+          setTab('verify');
+        } else {
+          setTimeout(() => onClose(), 800);
+        }
       } else {
         setErrorMsg(res.message);
       }
     } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to create your account.');
+    } finally {
       setIsLoading(false);
-      setErrorMsg(error instanceof Error ? error.message : 'Unable to verify email.');
     }
   };
 
-  const handleForgotPassword = (e: React.FormEvent) => {
+  const handleVerifySignup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    setIsLoading(true);
+    try {
+      const result = await verifyCollegeSignup(email, verifyCode);
+      if (result.success) {
+        setSuccessMsg(result.message);
+        setTimeout(onClose, 800);
+      } else {
+        setErrorMsg(result.message);
+      }
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to verify the code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleResendSignupOtp = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setIsLoading(true);
+    try {
+      const result = await resendCollegeSignupOtp(email);
+      if (result.success) setSuccessMsg(result.message);
+      else setErrorMsg(result.message);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to resend the code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isCollegeEmail(email)) {
       setErrorMsg('Enter a valid college .ac.in email address.');
       return;
     }
     setIsLoading(true);
-    setTimeout(() => {
+    try {
+      const result = await sendPasswordReset(email);
+      if (result.success) setSuccessMsg(result.message);
+      else setErrorMsg(result.message);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to send reset instructions.');
+    } finally {
       setIsLoading(false);
-      setSuccessMsg(`A password reset link and 6-digit code has been dispatched to ${email}.`);
-    }, 600);
+    }
+  };
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setIsLoading(true);
+    try {
+      const result = await completePasswordReset(password);
+      if (result.success) {
+        setSuccessMsg(result.message);
+        onPasswordRecoveryComplete();
+        setTimeout(onClose, 600);
+      } else {
+        setErrorMsg(result.message);
+      }
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to update your password.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -311,6 +388,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                />
+              </div>
+
               {/* Profile Photo Choice */}
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -374,33 +467,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </label>
                   <select
                     value={role}
-                    onChange={(e) => setRole(e.target.value as UserRole)}
+                    onChange={(e) => {
+                      const nextRole = e.target.value as UserRole;
+                      setRole(nextRole);
+                      if (nextRole === 'faculty' || nextRole === 'admin') setYear('Faculty');
+                      else if (year === 'Faculty') setYear('2nd Year');
+                    }}
                     className="w-full px-2 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
                   >
                     <option value="student">Student</option>
                     <option value="senior">Senior Student</option>
-                    <option value="faculty">Faculty Member</option>
+                    <option value="faculty">Faculty (requires admin approval)</option>
+                    <option value="admin">Administrator (requires admin approval)</option>
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Year / Rank
+                    {role === 'faculty' || role === 'admin' ? 'Rank / Position' : 'Year / Rank'}
                   </label>
                   <select
                     value={year}
                     onChange={(e) => setYear(e.target.value)}
                     className="w-full px-2 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
                   >
+                    {(role === 'faculty' || role === 'admin') && <option value="Faculty">Faculty / Staff</option>}
                     <option value="1st Year">1st Year</option>
                     <option value="2nd Year">2nd Year</option>
                     <option value="3rd Year">3rd Year</option>
                     <option value="4th Year">4th Year</option>
                     <option value="PG/Master">PG / Master</option>
-                    <option value="Faculty">Faculty</option>
                   </select>
                 </div>
               </div>
+
+              {(role === 'faculty' || role === 'admin') && (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  Your account will be created as a student until an existing administrator approves this {role} access request.
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -428,7 +532,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <input
                     type="text"
                     required
-                    placeholder="23CS3012"
+                    placeholder={role === 'faculty' || role === 'admin' ? 'Faculty ID' : '23CS3012'}
                     value={rollNumber}
                     onChange={(e) => setRollNumber(e.target.value)}
                     className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
@@ -441,43 +545,53 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 disabled={isLoading}
                 className="w-full py-2.5 mt-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-lg shadow-teal-700/20 transition-all flex items-center justify-center gap-2"
               >
-                {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Send Email Verification Code'}
+                {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Create Account'}
               </button>
             </form>
           )}
 
-          {/* EMAIL VERIFICATION STEP */}
           {tab === 'verify' && (
-            <form onSubmit={handleConfirmVerification} className="space-y-4">
-              <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-100 dark:border-teal-900 text-xs text-teal-800 dark:text-teal-200">
-                We sent a 6-digit verification code to <strong>{email}</strong>. Enter code below (e.g. 123456).
-              </div>
-
+            <form onSubmit={handleVerifySignup} className="space-y-4">
+              <p className="rounded-xl border border-teal-100 bg-teal-50 p-3 text-xs text-teal-800 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200">
+                Enter the verification code sent to <strong>{email}</strong> to finish creating your account.
+              </p>
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  6-Digit Verification Code
+                  Email verification code
                 </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
                   required
-                  placeholder="123456"
+                  maxLength={8}
                   value={verifyCode}
-                  onChange={(e) => setVerifyCode(e.target.value)}
-                  className="w-full px-3 py-2 text-center text-lg font-mono tracking-widest rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                  onChange={(e) => setVerifyCode(e.target.value.replace(/\s/g, ''))}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-center font-mono text-lg tracking-[0.3em] text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-white"
                 />
               </div>
-
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                className="w-full rounded-xl bg-teal-700 py-2.5 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-60"
               >
-                {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : 'Verify Email & Create Profile'}
+                {isLoading ? <RefreshCw className="mx-auto h-4 w-4 animate-spin" /> : 'Verify Email & Create Account'}
               </button>
-
               <button
                 type="button"
-                onClick={() => setTab('register')}
+                onClick={() => void handleResendSignupOtp()}
+                disabled={isLoading}
+                className="w-full text-center text-xs font-semibold text-teal-700 hover:underline disabled:opacity-60 dark:text-teal-300"
+              >
+                Resend code
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('register');
+                  setSuccessMsg('');
+                  setErrorMsg('');
+                }}
                 className="w-full text-center text-xs text-slate-500 hover:underline"
               >
                 Back to registration details
@@ -516,6 +630,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 className="w-full text-center text-xs text-slate-500 hover:underline"
               >
                 Back to Login
+              </button>
+            </form>
+          )}
+
+          {tab === 'reset' && (
+            <form onSubmit={handlePasswordReset} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  New Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-white"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-2.5 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl"
+              >
+                {isLoading ? <RefreshCw className="w-4 h-4 animate-spin mx-auto" /> : 'Update Password'}
               </button>
             </form>
           )}

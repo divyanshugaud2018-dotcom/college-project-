@@ -121,8 +121,9 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onSelectDoubt }) => {
       users[index].year = editYear;
       users[index].rollNumber = editRoll;
       users[index].avatar = editAvatar;
-      saveUsers(users);
-      setIsEditing(false);
+      void saveUsers(users).then((saved) => {
+        if (saved) setIsEditing(false);
+      });
     }
   };
 
@@ -572,4 +573,3 @@ export const UserProfile: React.FC<UserProfileProps> = ({ onSelectDoubt }) => {
     </div>
   );
 };
-

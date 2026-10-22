@@ -11,9 +11,7 @@ import {
   LogOut,
   Trophy,
   BookOpen,
-  CheckCircle,
   AlertTriangle,
-  ChevronDown,
   Lock,
   Layers,
   Sparkles
@@ -23,11 +21,10 @@ import {
   getNotifications,
   markNotificationAsRead,
   markAllNotificationsRead,
-  switchUserRoleForDemo,
-  setCurrentUser,
+  signOut,
   STORAGE_EVENT
 } from '../services/storage';
-import { User, UserRole, NotificationItem } from '../types';
+import { User, NotificationItem } from '../types';
 
 interface NavbarProps {
   onOpenAuth: () => void;
@@ -64,7 +61,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showRoleMenu, setShowRoleMenu] = useState(false);
 
   useEffect(() => {
     const handleUpdate = () => {
@@ -84,13 +80,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  const handleRoleSwitch = (role: UserRole) => {
-    switchUserRoleForDemo(role);
-    setShowRoleMenu(false);
-  };
-
-  const handleLogout = () => {
-    setCurrentUser(null);
+  const handleLogout = async () => {
+    await signOut();
     setShowUserMenu(false);
   };
 
@@ -197,41 +188,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <Plus className="w-4 h-4" />
               <span className="hidden sm:inline">Ask Doubt</span>
             </button>
-
-            {/* Demo Quick Role Switcher */}
-            <div className="relative hidden xl:block">
-              <button
-                onClick={() => setShowRoleMenu(!showRoleMenu)}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Switch persona for testing"
-              >
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Role: <strong className="capitalize">{user?.role || 'Guest'}</strong></span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-              </button>
-
-              {showRoleMenu && (
-                <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 py-1 z-50 animate-in fade-in slide-in-from-top-1">
-                  <div className="px-3 py-1.5 text-[11px] font-semibold text-slate-400 uppercase border-b border-slate-100 dark:border-slate-700">
-                    Switch Test Persona
-                  </div>
-                  {(['student', 'senior', 'faculty', 'admin'] as UserRole[]).map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => handleRoleSwitch(r)}
-                      className={`w-full text-left px-3 py-1.5 text-xs font-medium capitalize flex items-center justify-between ${
-                        user?.role === r
-                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
-                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      <span>{r}</span>
-                      {user?.role === r && <CheckCircle className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
 
             {/* Notifications Menu */}
             {user && (
